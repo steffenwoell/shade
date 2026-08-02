@@ -1,0 +1,323 @@
+#!/bin/zsh
+# DESC: Dim screen below system minimum
+
+emulate -LR zsh
+setopt EXTENDED_GLOB NO_UNSET PIPE_FAIL
+
+SCRIPT_DIR="${0:A:h}"
+
+resolve_default_app() {
+    local candidate
+    local -a candidates=(
+        "$HOME/Applications/Shade.app"
+        "/Applications/Shade.app"
+        "$SCRIPT_DIR/../Shade.app"
+        "$HOME/Code/shade/Shade.app"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            REPLY="${candidate:A}"
+            return 0
+        fi
+    done
+
+    REPLY="$HOME/Applications/Shade.app"
+}
+
+if [[ -n "${SHADE_APP:-}" ]]; then
+    APP="${SHADE_APP:A}"
+else
+    resolve_default_app
+    APP="$REPLY"
+fi
+EXECUTABLE="${SHADE_EXECUTABLE:-$APP/Contents/MacOS/Shade}"
+OPEN_BIN="${SHADE_OPEN_BIN:-/usr/bin/open}"
+PS_BIN="${SHADE_PS_BIN:-/bin/ps}"
+AWK_BIN="${SHADE_AWK_BIN:-/usr/bin/awk}"
+OPACITY_FILE="${SHADE_OPACITY_FILE:-$HOME/.shade-opacity}"
+
+if [[ -t 1 ]]; then
+    C_RED=$'\e[31m'
+    C_GREEN=$'\e[32m'
+    C_YELLOW=$'\e[33m'
+    C_RESET=$'\e[0m'
+else
+    C_RED=''
+    C_GREEN=''
+    C_YELLOW=''
+    C_RESET=''
+fi
+
+show_help() {
+    cat <<'EOF'
+NAME
+    shade - Control the Shade screen dimmer
+
+SYNOPSIS
+    shade OPACITY
+    shade off
+    shade status
+    shade --help
+
+DESCRIPTION
+    Starts Shade with an opacity between 1 and 100 percent.
+    An opacity of 0 is equivalent to "shade off".
+
+    Shade.app is located automatically in ~/Applications, /Applications,
+    the repository directory, or ~/Code/shade. SHADE_APP can override
+    this search.
+
+ENVIRONMENT
+    SHADE_APP             Override the Shade.app path
+    SHADE_OPACITY_FILE    Override the opacity state file
+
+OPTIONS
+    -h, --help    Show this help
+
+EXAMPLES
+    shade 60
+    shade 80
+    shade off
+    shade status
+EOF
+}
+
+usage_error() {
+    print -u2 -r -- "${C_RED}Error: $1${C_RESET}"
+    print -u2 -r -- "Try '${0:t} --help' for usage."
+    exit 2
+}
+
+runtime_error() {
+    print -u2 -r -- "${C_RED}Error: $1${C_RESET}"
+    exit 1
+}
+
+show_bar() {
+    local -i value="$1"
+    local -i width=12
+    local -i filled=$(( value * width / 100 ))
+    local -i empty=$(( width - filled ))
+    local -i i
+    local bar=''
+
+    for ((i = 0; i < filled; i++)); do
+        bar+='█'
+    done
+
+    for ((i = 0; i < empty; i++)); do
+        bar+='░'
+    done
+
+    printf '[%s]' "$bar"
+}
+
+show_status() {
+    local state="$1"
+    local value="$2"
+
+    printf 'Shade:    %-3s\n' "$state"
+    printf 'Opacity:  %3d%%  %s\n' "$value" "$(show_bar "$value")"
+    print
+}
+
+is_valid_opacity() {
+    local value="$1"
+
+    [[ "$value" == [0-9]## ]] || return 1
+    (( ${#value} <= 3 )) || return 1
+    (( value >= 0 && value <= 100 ))
+}
+
+read_opacity() {
+    local value
+
+    [[ -r "$OPACITY_FILE" ]] || return 1
+    IFS= read -r value <"$OPACITY_FILE" || return 1
+    is_valid_opacity "$value" || return 1
+    REPLY=$(( value ))
+}
+
+write_opacity() {
+    local value="$1"
+    local temporary
+
+    temporary="$(mktemp "${OPACITY_FILE}.XXXXXX")" || return 1
+    chmod 600 "$temporary" || {
+        rm -f -- "$temporary"
+        return 1
+    }
+
+    if ! print -r -- "$value" >"$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+
+    if ! mv -f -- "$temporary" "$OPACITY_FILE"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+}
+
+find_shade_pids() {
+    "$PS_BIN" -ww -axo pid=,uid=,command= 2>/dev/null |
+        "$AWK_BIN" -v expected_uid="$EUID" -v executable="$EXECUTABLE" '
+            {
+                pid=$1
+                uid=$2
+                sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+/, "", $0)
+
+                if (uid == expected_uid &&
+                    ($0 == executable || index($0, executable " ") == 1)) {
+                    print pid
+                }
+            }
+        '
+}
+
+get_shade_pids() {
+    local output
+
+    output="$(find_shade_pids)" || return 1
+    pids=("${(@f)output}")
+    pids=("${(@)pids:#}")
+}
+
+stop_shade() {
+    local -a pids
+    local -i attempt
+
+    get_shade_pids || return 1
+    (( ${#pids[@]} > 0 )) || return 0
+
+    kill -TERM "${pids[@]}" 2>/dev/null
+
+    for ((attempt = 0; attempt < 20; attempt++)); do
+        sleep 0.1
+        get_shade_pids || return 1
+        (( ${#pids[@]} == 0 )) && return 0
+    done
+
+    kill -KILL "${pids[@]}" 2>/dev/null
+
+    for ((attempt = 0; attempt < 10; attempt++)); do
+        sleep 0.1
+        get_shade_pids || return 1
+        (( ${#pids[@]} == 0 )) && return 0
+    done
+
+    return 1
+}
+
+wait_for_start() {
+    local -a pids
+    local -i attempt
+
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        get_shade_pids || return 1
+        (( ${#pids[@]} > 0 )) && return 0
+        sleep 0.1
+    done
+
+    return 1
+}
+
+if (( $# == 0 )); then
+    show_help
+    exit 0
+fi
+
+if (( $# != 1 )); then
+    usage_error "Expected exactly one argument."
+fi
+
+action="${1:l}"
+
+if [[ "$action" == (-h|--help|help) ]]; then
+    show_help
+    exit 0
+fi
+
+[[ "$OSTYPE" == darwin* ]] || runtime_error 'This command is supported only on macOS.'
+[[ -x "$PS_BIN" ]] || runtime_error "Required command not found: $PS_BIN"
+[[ -x "$AWK_BIN" ]] || runtime_error "Required command not found: $AWK_BIN"
+
+case "$action" in
+    off)
+        stop_shade || runtime_error 'Shade did not stop.'
+        show_status off 0
+        ;;
+
+    status)
+        get_shade_pids || runtime_error 'Could not inspect running processes.'
+
+        if (( ${#pids[@]} == 0 )); then
+            show_status off 0
+            exit 0
+        fi
+
+        if ! read_opacity; then
+            print -r -- 'Shade:    on'
+            print -r -- "Opacity:  ${C_YELLOW}unknown (invalid state file)${C_RESET}"
+            print
+            exit 1
+        fi
+
+        show_status on "$REPLY"
+        ;;
+
+    *)
+        is_valid_opacity "$1" || usage_error 'Opacity must be an integer from 0 to 100.'
+        opacity=$(( $1 ))
+
+        if (( opacity == 0 )); then
+            stop_shade || runtime_error 'Shade did not stop.'
+            show_status off 0
+            exit 0
+        fi
+
+        [[ -d "$APP" ]] || runtime_error "Shade app not found: $APP"
+        [[ -x "$EXECUTABLE" ]] || runtime_error "Shade executable not found: $EXECUTABLE"
+        [[ -x "$OPEN_BIN" ]] || runtime_error "Required command not found: $OPEN_BIN"
+
+        had_previous_opacity=0
+        previous_opacity=''
+
+        if read_opacity; then
+            had_previous_opacity=1
+            previous_opacity="$REPLY"
+        fi
+
+        write_opacity "$opacity" || runtime_error "Could not write opacity file: $OPACITY_FILE"
+
+        if ! stop_shade; then
+            if (( had_previous_opacity )); then
+                write_opacity "$previous_opacity" || true
+            else
+                rm -f -- "$OPACITY_FILE"
+            fi
+            runtime_error 'Existing Shade process did not stop.'
+        fi
+
+        if ! "$OPEN_BIN" -n "$APP"; then
+            if (( had_previous_opacity )); then
+                write_opacity "$previous_opacity" || true
+            else
+                rm -f -- "$OPACITY_FILE"
+            fi
+            runtime_error 'macOS could not open Shade.'
+        fi
+
+        if ! wait_for_start; then
+            if (( had_previous_opacity )); then
+                write_opacity "$previous_opacity" || true
+            else
+                rm -f -- "$OPACITY_FILE"
+            fi
+            runtime_error 'Shade was opened but no matching process appeared.'
+        fi
+
+        show_status on "$opacity"
+        ;;
+esac
