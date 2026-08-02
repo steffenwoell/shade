@@ -103,6 +103,10 @@ Run the macOS smoke checks:
 
 They validate Swift compilation, installation, the application bundle, plist metadata, code signing, supported architecture, CLI status/start behavior, atomic opacity configuration, and repository hygiene.
 
+## Author
+
+Created by [Steffen Wöll](https://steffenwoell.github.io), 2026.
+
 ## License
 
-[MIT](LICENSE)
+MIT License.

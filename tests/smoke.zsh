@@ -94,7 +94,8 @@ fi
 [[ "$(<"$opacity_file")" == 40 ]]
 
 if grep -R -n -E '/Users/[^/[:space:]]+' "$repo_dir" \
-    --exclude='smoke.zsh' --exclude-dir='Shade.app' --exclude-dir='_misc'; then
+    --exclude='smoke.zsh' --exclude-dir='.git' \
+    --exclude-dir='Shade.app' --exclude-dir='_misc'; then
     print -u2 -- 'Error: repository contains a user-specific absolute path.'
     exit 1
 fi
