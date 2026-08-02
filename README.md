@@ -1,4 +1,4 @@
-# Shade 1.1 "Phobos"
+# shade 1.1 "Phobos"
 
 <img src="assets/shade.jpg" alt="Shade icon">
 
