@@ -13,7 +13,6 @@
 ## Repository
 
 - Adds publication-ready documentation and privacy information.
-- Adds macOS build and bundle smoke tests.
 - Adds GitHub Actions validation.
 
 ## Command-line interface

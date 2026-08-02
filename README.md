@@ -93,16 +93,6 @@ It does not modify system brightness, Night Shift, color profiles, gamma tables,
 
 Shade is fully local, performs no networking, collects no analytics, and stores only the value you place in `~/.shade-opacity`.
 
-## Development
-
-Run the macOS smoke checks:
-
-```zsh
-./tests/smoke.zsh
-```
-
-They validate Swift compilation, installation, the application bundle, plist metadata, code signing, supported architecture, CLI status/start behavior, atomic opacity configuration, and repository hygiene.
-
 ## Author
 
 Created by [Steffen Wöll](https://steffenwoell.github.io), 2026.
