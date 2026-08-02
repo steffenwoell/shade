@@ -1,0 +1,7 @@
+*.swift text eol=lf
+*.zsh text eol=lf
+*.plist text eol=lf
+*.md text eol=lf
+*.png binary
+*.icns binary
+
