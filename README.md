@@ -1,6 +1,6 @@
 # shade 1.1 "Phobos"
 
-<img src="assets/shade.jpg" alt="Shade icon">
+<img src="assets/shade.jpg" alt="Shade icon" width="300">
 
 A multi-display screen dimmer for macOS, controlled from the command line.
 
